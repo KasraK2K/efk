@@ -1,0 +1,79 @@
+version: '3.9'
+
+services:
+
+    # ------------------------------- Elasticsearch ------------------------------ #
+    elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+        container_name: elasticsearch
+        environment:
+            - discovery.type=single-node
+            - ES_JAVA_OPTS=-Xms2g -Xmx2g
+            - cluster.routing.allocation.disk.threshold_enabled=false
+        ulimits:
+            memlock:
+                soft: -1
+                hard: -1
+        volumes:
+            - ./backup/elasticsearch:/usr/share/elasticsearch/data
+        ports:
+            - "9200:9200"
+
+    # ---------------------------------- Fluentd --------------------------------- #
+    fluentd:
+        build:
+            context: ./fluentd
+            dockerfile: Dockerfile
+        image: kasra-fluentd
+        container_name: fluentd
+        volumes:
+            - ./fluentd/conf:/fluentd/etc
+            - ./fluentd/log:/fluentd/log
+        ports:
+            - "24224:24224"
+            - "24224:24224/udp"
+            - "8888:8888"
+        restart: unless-stopped
+        links:
+            - elasticsearch
+        depends_on:
+            - elasticsearch
+
+    # ---------------------------------- Kibana ---------------------------------- #
+    kibana:
+        image: docker.elastic.co/kibana/kibana:7.17.0
+        container_name: kibana
+        ports:
+            - "5601:5601"
+        environment:
+            - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+        depends_on:
+            - elasticsearch
+
+    # -------------------------------- APM Server -------------------------------- #
+    apm-server:
+        image: docker.elastic.co/apm/apm-server:7.17.0
+        container_name: apm-server
+        environment:
+            - output.elasticsearch.hosts=["http://elasticsearch:9200"]
+            - setup.kibana.host=http://kibana:5601
+        ports:
+            - "8200:8200"
+        depends_on:
+            - elasticsearch
+            - kibana
+
+    # ------------------------------- Fleet Server ------------------------------- #
+    fleet-server:
+        image: docker.elastic.co/beats/elastic-agent:7.17.0
+        container_name: fleet-server
+        environment:
+            - FLEET_SERVER_ENABLE=1
+            - FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200
+            - FLEET_SERVER_SERVICE_TOKEN=<YOUR_SERVICE_TOKEN>
+            - KIBANA_HOST=http://kibana:5601
+        ports:
+            - "8220:8220"
+        depends_on:
+            - elasticsearch
+            - kibana
